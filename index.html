@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>👿 AI Blog Monster (Tier 1 Polyglot + Smart Image Validator)</title>
+    <title>👿 AI Blog Monster (Tier 1 Polyglot + Blog Architect)</title>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tinymce/6.8.2/tinymce.min.js"></script>
     <style>
@@ -54,7 +54,7 @@
         @keyframes pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
         .loading-text { animation: pulse 1.5s infinite; font-weight: bold; color: #d35400; }
 
-        /* --- CSS BARU UNTUK KEYWORD BOX --- */
+        /* --- CSS KEYWORD BOX --- */
         .keyword-box { margin-top: 10px; padding: 15px; background: #fff; border: 1px solid #ddd; border-radius: 6px; }
         .keyword-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
         .kw-tag { 
@@ -63,12 +63,16 @@
         }
         .kw-tag:hover { background: #3498db; color: white; border-color: #3498db; }
         .kw-tag.copied { background: #27ae60; color: white; border-color: #27ae60; }
+
+        /* --- CSS NEW BLOG CREATOR --- */
+        .create-blog-panel { border: 2px dashed #3498db; background: #f0f8ff; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+        .create-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; cursor: pointer; color: #2980b9; font-weight: bold; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2>🚀 AI Blog Monster (Validator V2)</h2>
+    <h2>🚀 AI Blog Monster (Architect Edition)</h2>
     <div id="status_msg"></div>
 
     <div id="login-section" style="text-align: center; padding: 60px;">
@@ -94,9 +98,29 @@
                 <button onclick="fetchModels()" id="btn_cek" class="btn btn-orange" style="margin:0;">🔌 Cek</button>
             </div>
             
+            <div class="create-header" onclick="toggleCreateBlog()">
+                <span>➕ Buat Blog Baru (AI Architect)</span>
+                <span id="icon_create">▼</span>
+            </div>
+            <div id="create_blog_box" class="create-blog-panel hidden">
+                <label style="font-size:12px; color:#555;">1. Judul Blog:</label>
+                <div style="display:flex; gap:10px;">
+                    <input type="text" id="new_blog_title" placeholder="Contoh: Resep Masakan Jawa" style="margin:0;">
+                    <button onclick="generateBlogNames()" id="btn_gen_name" class="btn btn-purple" style="margin:0; width: auto; white-space:nowrap;">🤖 Generate Nama</button>
+                </div>
+                
+                <label style="font-size:12px; color:#555; margin-top:10px; display:block;">2. Rekomendasi Alamat (Max 12 chars, No Numbers):</label>
+                <textarea id="blog_name_suggestions" style="height:80px; background:#fff;" placeholder="Klik Generate untuk melihat saran alamat..." readonly></textarea>
+                
+                <label style="font-size:12px; color:#555;">3. Pilih Salah Satu & Buat:</label>
+                <input type="text" id="chosen_blog_url" placeholder="Copy paste salah satu nama dari atas kesini...">
+                <button onclick="openBloggerCreate()" class="btn btn-green">🚀 Buat Blog Sekarang</button>
+                <small style="color:#c0392b; font-size:11px;">*API Blogger membatasi pembuatan otomatis. Tool ini akan menyalin nama & membuka dashboard pembuatan.</small>
+            </div>
             <div style="display:flex; gap:10px;">
                 <select id="model_select" style="margin:0;"><option disabled selected>-- Pilih Model --</option></select>
                 <select id="blog_select" style="margin:0;" onchange="fetchExistingPosts()"><option disabled selected>Loading Blog...</option></select>
+                <button onclick="fetchUserBlogs()" class="btn btn-dark" style="width:auto; margin:0;" title="Refresh List Blog">🔄</button>
             </div>
             <div id="link_status" style="font-size:12px; color:#27ae60; margin-top:5px; font-style:italic;"></div>
         </div>
@@ -230,23 +254,72 @@
         return text.split(/\s+/).slice(0, 12).join(" ");
     }
 
-    // --- UTILS: VALIDASI GAMBAR (Agar tidak inject gambar rusak) ---
-    function validateImage(url) {
-        return new Promise((resolve) => {
-            const img = new Image();
-            img.onload = () => resolve(true);
-            img.onerror = () => resolve(false);
-            img.src = url;
+    // --- FITUR BARU: BLOG ARCHITECT (Create Blog Logic) ---
+    function toggleCreateBlog() {
+        const box = document.getElementById('create_blog_box');
+        box.classList.toggle('hidden');
+    }
+
+    async function generateBlogNames() {
+        const title = document.getElementById('new_blog_title').value;
+        const apiKey = document.getElementById('api_key_input').value;
+        const model = document.getElementById('model_select').value;
+        const out = document.getElementById('blog_name_suggestions');
+        const btn = document.getElementById('btn_gen_name');
+
+        if(!title || !apiKey) return alert("Isi Judul Blog & API Key dulu!");
+
+        btn.innerText = "⏳ Mikir..."; btn.disabled = true;
+        out.value = "Sedang meracik nama blog SEO friendly...";
+
+        const prompt = `
+        TASK: Generate 5 available-sounding, SEO-friendly subdomain names for a blog about "${title}".
+        STRICT CONSTRAINTS:
+        1. Max 12 characters per name.
+        2. Letters ONLY (No numbers, no symbols, no hyphens).
+        3. Must be catchy and unique.
+        4. Output format: Just the 5 words separated by comma.
+        `;
+
+        let resultText = "";
+        try {
+            if (currentProvider === 'GEMINI') {
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/${model}:generateContent?key=${apiKey}`, {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                });
+                const data = await res.json();
+                if(data.candidates) resultText = data.candidates[0].content.parts[0].text;
+            } else {
+                const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                    method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model: model, messages: [{ role: "system", content: prompt }], temperature: 0.7 })
+                });
+                const data = await res.json();
+                if(data.choices) resultText = data.choices[0].message.content;
+            }
+            if(resultText) {
+                out.value = resultText;
+            } else { out.value = "Gagal generate."; }
+        } catch(e) { out.value = "Error: " + e.message; }
+        
+        btn.innerText = "🤖 Generate Nama"; btn.disabled = false;
+    }
+
+    function openBloggerCreate() {
+        const name = document.getElementById('chosen_blog_url').value;
+        if(!name) return alert("Pilih/Copy salah satu nama dari rekomendasi di atas!");
+        
+        // Copy to clipboard
+        navigator.clipboard.writeText(name).then(() => {
+            alert(`Nama "${name}" berhasil disalin!\n\nKlik OK untuk membuka halaman pembuatan blog.\nSilakan Paste (Tempel) nama tersebut di kolom Alamat.`);
+            window.open("https://www.blogger.com/create-blog.g", "_blank");
         });
     }
 
     // --- NEW: SMART IMAGE DOWNLOADER (BASE64 MODE) ---
-    // Fungsi ini sekarang menerima DATA GAMBAR ASLI (Base64), bukan Link.
     async function fetchSmartImage(keyword) {
-        // Query Bersih
         const cleanQuery = keyword + " -site:shutterstock.com -site:istockphoto.com -stock -watermark";
-        
-        // Helper untuk request ke GAS
         const requestToGAS = async (q) => {
             try {
                 const res = await fetch(BING_SCRAPER_URL, {
@@ -254,24 +327,21 @@
                 });
                 const data = await res.json();
                 if(data.status === 'success' && data.url) {
-                    // data.url sekarang berisi kode Base64 yang sangat panjang
                     return data.url; 
                 }
             } catch(e) { console.log("Gagal fetch: " + q); }
             return null;
         };
 
-        // 1. Coba Bing Normal
         console.log("Downloading image from Bing...");
         let imgData = await requestToGAS(cleanQuery);
         if(imgData) return imgData;
 
-        // 2. Fallback Pinterest
         console.log("Bing failed, trying Pinterest...");
         const pinterestQuery = "site:pinterest.com " + keyword;
         imgData = await requestToGAS(pinterestQuery);
         
-        return imgData; // Return Base64 atau Null
+        return imgData; 
     }
 
     // --- 0. FITUR BARU: KEYWORD SCRAPER (AI BASED) ---
