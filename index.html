@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>👿 AI Blog Monster (Tier 1 Polyglot + Keyword Hunter)</title>
+    <title>👿 AI Blog Monster (Tier 1 Polyglot + Smart Image Validator)</title>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tinymce/6.8.2/tinymce.min.js"></script>
     <style>
@@ -68,7 +68,7 @@
 <body>
 
 <div class="container">
-    <h2>🚀 AI Blog Monster</h2>
+    <h2>🚀 AI Blog Monster (Validator V2)</h2>
     <div id="status_msg"></div>
 
     <div id="login-section" style="text-align: center; padding: 60px;">
@@ -119,8 +119,8 @@
             <div class="checkbox-wrapper">
                 <input type="checkbox" id="auto_bing_image" checked>
                 <div style="flex:1;">
-                    <b>🔍 Auto-Cari Gambar Header (Bing + Pinterest Fallback)</b><br>
-                    <small style="color:#666;">Jika Bing gagal/jelek, otomatis cari di Pinterest.</small>
+                    <b>🔍 Auto-Cari Gambar Header (Smart Validator)</b><br>
+                    <small style="color:#666;">Anti-Gambar Rusak. Otomatis switch ke Pinterest jika Bing error.</small>
                 </div>
             </div>
 
@@ -190,7 +190,7 @@
     const CLIENT_ID = '763331219607-vv1dd6jksep9utgs337idu67i57j6baa.apps.googleusercontent.com';
     const SCOPES = 'https://www.googleapis.com/auth/blogger';
     
-    // --- LINK SAKTI GAS BING SCRAPER (HARDCODED) ---
+    // --- LINK SAKTI GAS BING SCRAPER ---
     const BING_SCRAPER_URL = "https://script.google.com/macros/s/AKfycbx15NwwaBSAG9jIQPE5cFPupZ2aXubZMVQCet78Z0xQ2Eddbsp2N-6SAUSIh7X6n3dzuQ/exec";
     
     let tokenClient, accessToken = null;
@@ -230,36 +230,54 @@
         return text.split(/\s+/).slice(0, 12).join(" ");
     }
 
-    // --- NEW: SMART IMAGE FETCHER (BING -> PINTEREST FALLBACK) ---
+    // --- UTILS: VALIDASI GAMBAR (Agar tidak inject gambar rusak) ---
+    function validateImage(url) {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => resolve(true);
+            img.onerror = () => resolve(false);
+            img.src = url;
+        });
+    }
+
+    // --- NEW: SMART IMAGE FETCHER (Cleaner Query + Validator + Pinterest) ---
     async function fetchSmartImage(keyword) {
-        // 1. Coba Scrape Bing Biasa
+        // Query Bersih: Hindari watermark/stock photo
+        const cleanQuery = keyword + " -site:shutterstock.com -site:istockphoto.com -stock -watermark";
+
+        // 1. Coba Scrape Bing (Normal)
         try {
-            console.log("Mencari gambar di Bing untuk: " + keyword);
+            console.log("Mencari gambar Bing: " + cleanQuery);
             const res = await fetch(BING_SCRAPER_URL, {
-                method: 'POST', mode: 'cors', body: JSON.stringify({ query: keyword })
+                method: 'POST', mode: 'cors', body: JSON.stringify({ query: cleanQuery })
             });
             const data = await res.json();
+            
+            // CEK VALIDASI
             if(data.status === 'success' && data.url) {
-                return data.url; // Sukses di percobaan pertama
+                const isValid = await validateImage(data.url);
+                if(isValid) return data.url;
+                else console.log("Gambar Bing rusak/tidak bisa dimuat, coba Pinterest...");
             }
-        } catch(e) { console.log("Bing utama gagal, coba fallback..."); }
+        } catch(e) { console.log("Bing utama gagal."); }
 
-        // 2. Fallback: Coba Scrape Pinterest (via Bing Operator)
+        // 2. Fallback: Coba Scrape Pinterest
         try {
             console.log("Switching ke Pinterest Fallback...");
-            // Trik: Pakai "site:pinterest.com" agar Bing hanya ambil dari Pinterest
-            const pinterestQuery = "site:pinterest.com " + keyword;
+            const pinterestQuery = "site:pinterest.com " + keyword; // Query khusus Pinterest
             
             const res = await fetch(BING_SCRAPER_URL, {
                 method: 'POST', mode: 'cors', body: JSON.stringify({ query: pinterestQuery })
             });
             const data = await res.json();
+            
             if(data.status === 'success' && data.url) {
-                return data.url; // Sukses di percobaan kedua (Pinterest)
+                const isValid = await validateImage(data.url); // Validasi lagi
+                if(isValid) return data.url;
             }
-        } catch(e) { console.log("Pinterest fallback gagal juga."); }
+        } catch(e) { console.log("Pinterest fallback gagal."); }
 
-        return null; // Nyerah, tidak ada gambar
+        return null; // Nyerah, jangan inject apapun
     }
 
     // --- 0. FITUR BARU: KEYWORD SCRAPER (AI BASED) ---
@@ -382,7 +400,7 @@
             - Strong Introduction (2-3 paragraphs).
             - MANDATORY: Use at least 4 specific Heading 2 (<h2>) for sub-topics.
             - Fill each sub-topic with detailed information.
-            - End the article with a natural conclusion WITHOUT using a 'Conclusion' heading or anything similar. Create a flowing conclusion.
+            - Akhiri artikel dengan kesimpulan yang natural TANPA menggunakan heading 'Kesimpulan' atau semacamnya. Buat penutup yang mengalir.
             - Avoid repetitive sentence patterns.
             `;
         } else if (mode === 'CLICKBAIT') {
@@ -467,7 +485,7 @@
                     finalContent = await injectImagesIntoContent(finalContent);
                 }
 
-                // --- E. HEADER IMAGE (AUTO BING + FALLBACK PINTEREST) ---
+                // --- E. HEADER IMAGE (SMART VALIDATOR) ---
                 if(autoBing) {
                     const imgUrl = await fetchSmartImage(finalTitle); // Pakai Fungsi Baru
                     if(imgUrl) {
@@ -496,7 +514,7 @@
         btnMain.innerText = directToBlogger ? "🚀 Generate & Langsung Draft" : "✨ Preview";
     }
 
-    // --- 3. FUNGSI SUNTIK GAMBAR H2 (UPDATED WITH FALLBACK) ---
+    // --- 3. FUNGSI SUNTIK GAMBAR H2 (UPDATED WITH VALIDATOR) ---
     async function injectImagesIntoContent(htmlContent) {
         const parser = new DOMParser();
         const doc = parser.parseFromString(htmlContent, 'text/html');
@@ -507,7 +525,7 @@
             const h2Text = h2s[i].innerText;
             if(h2Text.length < 5) continue; 
 
-            // Pakai Fungsi Baru (Smart Fetch)
+            // Pakai Fungsi Baru (Smart Fetch + Validator)
             const imgUrl = await fetchSmartImage(h2Text);
             
             if(imgUrl) {
