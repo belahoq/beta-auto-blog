@@ -105,17 +105,17 @@
             <div id="create_blog_box" class="create-blog-panel hidden">
                 <label style="font-size:12px; color:#555;">1. Judul Blog:</label>
                 <div style="display:flex; gap:10px;">
-                    <input type="text" id="new_blog_title" placeholder="Contoh: Resep Masakan Jawa" style="margin:0;">
-                    <button onclick="generateBlogNames()" id="btn_gen_name" class="btn btn-purple" style="margin:0; width: auto; white-space:nowrap;">🤖 Generate Nama</button>
+                    <input type="text" id="new_blog_title" placeholder="Contoh: Rahasia Dapur" style="margin:0;">
+                    <button onclick="generateBlogNames()" id="btn_gen_name" class="btn btn-purple" style="margin:0; width: auto; white-space:nowrap;">🤖 Generate Alamat</button>
                 </div>
                 
-                <label style="font-size:12px; color:#555; margin-top:10px; display:block;">2. Rekomendasi Alamat (Max 12 chars, No Numbers):</label>
-                <textarea id="blog_name_suggestions" style="height:80px; background:#fff;" placeholder="Klik Generate untuk melihat saran alamat..." readonly></textarea>
+                <label style="font-size:12px; color:#555; margin-top:10px; display:block;">2. Rekomendasi Alamat (Max 15 chars, Tanpa Angka, SEO):</label>
+                <textarea id="blog_name_suggestions" style="height:80px; background:#fff;" placeholder="Contoh: rahasiadapur.blogspot.com, dapurkita.blogspot.com..." readonly></textarea>
                 
                 <label style="font-size:12px; color:#555;">3. Pilih Salah Satu & Buat:</label>
-                <input type="text" id="chosen_blog_url" placeholder="Copy paste salah satu nama dari atas kesini...">
+                <input type="text" id="chosen_blog_url" placeholder="Copy paste salah satu alamat dari atas kesini...">
                 <button onclick="openBloggerCreate()" class="btn btn-green">🚀 Buat Blog Sekarang</button>
-                <small style="color:#c0392b; font-size:11px;">*API Blogger membatasi pembuatan otomatis. Tool ini akan menyalin nama & membuka dashboard pembuatan.</small>
+                <small style="color:#c0392b; font-size:11px;">*Tool akan otomatis menyalin nama yang bersih dan membuka dashboard pembuatan blog.</small>
             </div>
             <div style="display:flex; gap:10px;">
                 <select id="model_select" style="margin:0;"><option disabled selected>-- Pilih Model --</option></select>
@@ -270,15 +270,22 @@
         if(!title || !apiKey) return alert("Isi Judul Blog & API Key dulu!");
 
         btn.innerText = "⏳ Mikir..."; btn.disabled = true;
-        out.value = "Sedang meracik nama blog SEO friendly...";
+        out.value = "Sedang meracik alamat blog...";
 
+        // --- PROMPT REVISI SESUAI PERMINTAAN ALAMAT URL ---
         const prompt = `
-        TASK: Generate 5 available-sounding, SEO-friendly subdomain names for a blog about "${title}".
-        STRICT CONSTRAINTS:
-        1. Max 12 characters per name.
-        2. Letters ONLY (No numbers, no symbols, no hyphens).
-        3. Must be catchy and unique.
-        4. Output format: Just the 5 words separated by comma.
+        ACT AS A BLOGGER SEO EXPERT.
+        TASK: Create 5 candidate URL addresses for a new blog titled: "${title}".
+        
+        STRICT RULES:
+        1. Output format: A simple comma-separated list of URLs.
+        2. Structure: [subdomain].blogspot.com
+        3. The [subdomain] part must be MAX 15 characters.
+        4. NO NUMBERS allowed in the subdomain. Letters only.
+        5. Must be lowercase.
+        6. Suggest names that are likely available (unique/creative).
+        
+        Example Output: rahasiadapur.blogspot.com, dapurenak.blogspot.com, kokirumah.blogspot.com, masakansimpel.blogspot.com, dapurlezat.blogspot.com
         `;
 
         let resultText = "";
@@ -303,16 +310,20 @@
             } else { out.value = "Gagal generate."; }
         } catch(e) { out.value = "Error: " + e.message; }
         
-        btn.innerText = "🤖 Generate Nama"; btn.disabled = false;
+        btn.innerText = "🤖 Generate Alamat"; btn.disabled = false;
     }
 
     function openBloggerCreate() {
-        const name = document.getElementById('chosen_blog_url').value;
-        if(!name) return alert("Pilih/Copy salah satu nama dari rekomendasi di atas!");
+        const fullUrl = document.getElementById('chosen_blog_url').value;
+        if(!fullUrl) return alert("Pilih/Copy salah satu alamat dari rekomendasi di atas!");
         
-        // Copy to clipboard
-        navigator.clipboard.writeText(name).then(() => {
-            alert(`Nama "${name}" berhasil disalin!\n\nKlik OK untuk membuka halaman pembuatan blog.\nSilakan Paste (Tempel) nama tersebut di kolom Alamat.`);
+        // Bersihkan .blogspot.com untuk disalin (karena form Blogger biasanya cuma minta subdomain)
+        // Tapi tetap support jika user copy full.
+        let cleanName = fullUrl.replace('.blogspot.com', '').replace('.blogspot', '').trim();
+
+        // Copy subdomain bersih to clipboard
+        navigator.clipboard.writeText(cleanName).then(() => {
+            alert(`Nama "${cleanName}" berhasil disalin!\n\nKlik OK untuk membuka halaman pembuatan blog.\nSilakan Paste (Tempel) nama tersebut di kolom Alamat.`);
             window.open("https://www.blogger.com/create-blog.g", "_blank");
         });
     }
