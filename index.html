@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>👿 AI Blog Monster (Tier 1 Polyglot)</title>
+    <title>👿 AI Blog Monster (Tier 1 Polyglot + Keyword Hunter)</title>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tinymce/6.8.2/tinymce.min.js"></script>
     <style>
@@ -53,6 +53,16 @@
         /* Loading Animation */
         @keyframes pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
         .loading-text { animation: pulse 1.5s infinite; font-weight: bold; color: #d35400; }
+
+        /* --- CSS BARU UNTUK KEYWORD BOX --- */
+        .keyword-box { margin-top: 10px; padding: 15px; background: #fff; border: 1px solid #ddd; border-radius: 6px; }
+        .keyword-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+        .kw-tag { 
+            background: #ecf0f1; padding: 5px 10px; border-radius: 15px; font-size: 12px; color: #2c3e50; 
+            cursor: pointer; border: 1px solid #bdc3c7; transition: 0.2s; 
+        }
+        .kw-tag:hover { background: #3498db; color: white; border-color: #3498db; }
+        .kw-tag.copied { background: #27ae60; color: white; border-color: #27ae60; }
     </style>
 </head>
 <body>
@@ -92,8 +102,20 @@
         </div>
 
         <div class="box">
-            <input type="text" id="judul" placeholder="Topik Utama (Boleh Indo, nanti diterjemahkan otomatis)">
-            
+            <div style="display:flex; gap:10px; align-items:flex-start; margin-bottom:15px;">
+                <input type="text" id="judul" placeholder="Topik Utama (Boleh Indo, nanti diterjemahkan otomatis)" style="margin-bottom:0;">
+                <button onclick="scrapeKeywords()" id="btn_kw" class="btn btn-dark" style="width:auto; margin-top:0; white-space:nowrap;">🔍 Riset KW</button>
+            </div>
+
+            <div id="keyword_result_box" class="keyword-box hidden">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <b style="font-size:13px;">💎 20 Low Competition & High Value Keywords:</b>
+                    <span style="font-size:11px; color:#7f8c8d; cursor:pointer;" onclick="closeKwBox()">[Tutup]</span>
+                </div>
+                <div id="kw_list" class="keyword-tags">
+                    </div>
+                <small style="color:#95a5a6; display:block; margin-top:8px; font-size:11px;">*Klik keyword untuk menyalin ke instruksi.</small>
+            </div>
             <div class="checkbox-wrapper">
                 <input type="checkbox" id="auto_bing_image" checked>
                 <div style="flex:1;">
@@ -206,6 +228,89 @@
 
     function makeCaption(text) {
         return text.split(/\s+/).slice(0, 12).join(" ");
+    }
+
+    // --- 0. FITUR BARU: KEYWORD SCRAPER (AI BASED) ---
+    async function scrapeKeywords() {
+        const topic = document.getElementById('judul').value;
+        const targetLang = document.getElementById('target_lang').value;
+        const apiKey = document.getElementById('api_key_input').value;
+        const model = document.getElementById('model_select').value;
+        const kwBox = document.getElementById('keyword_result_box');
+        const kwList = document.getElementById('kw_list');
+        const btn = document.getElementById('btn_kw');
+
+        if(!topic) return alert("Isi Topik Utama dulu sob!");
+        if(!apiKey) return alert("API Key belum diisi!");
+
+        btn.innerText = "⏳ Hunting...";
+        btn.disabled = true;
+        kwBox.classList.remove('hidden');
+        kwList.innerHTML = "<span class='loading-text'>Sedang mencari keywords terbaik...</span>";
+
+        // Prompt khusus SEO Expert
+        const prompt = `
+        ACT AS AN SEO EXPERT.
+        TASK: Generate 20 high-value, high-search-volume, and low-competition long-tail keywords based on the topic: "${topic}".
+        TARGET LANGUAGE: ${targetLang}.
+        
+        CRITERIA:
+        1. Keywords must be relevant to the topic.
+        2. Mix between informational and transactional keywords.
+        3. OUTPUT FORMAT: STRICTLY A COMMA-SEPARATED LIST ONLY. NO NUMBERING, NO INTRO.
+        Example output: keyword one, keyword two, best keyword three, how to do keyword four
+        `;
+
+        let resultText = "";
+
+        try {
+            if (currentProvider === 'GEMINI') {
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/${model}:generateContent?key=${apiKey}`, {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                });
+                const data = await res.json();
+                if(data.candidates) resultText = data.candidates[0].content.parts[0].text;
+            } else {
+                const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                    method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model: model, messages: [{ role: "system", content: prompt }], temperature: 0.7 })
+                });
+                const data = await res.json();
+                if(data.choices) resultText = data.choices[0].message.content;
+            }
+
+            // Render Keywords
+            if(resultText) {
+                const keywords = resultText.split(',').map(k => k.trim()).filter(k => k.length > 2).slice(0, 20);
+                kwList.innerHTML = "";
+                keywords.forEach(kw => {
+                    const tag = document.createElement('div');
+                    tag.className = "kw-tag";
+                    tag.innerText = kw;
+                    tag.onclick = function() {
+                        // Tambah ke deskripsi instruksi
+                        const desc = document.getElementById('desc_gambar');
+                        desc.value += (desc.value ? ", " : "") + kw;
+                        this.classList.add('copied');
+                        this.innerText = "✅ " + kw;
+                    };
+                    kwList.appendChild(tag);
+                });
+            } else {
+                kwList.innerHTML = "<small style='color:red'>Gagal generate keywords.</small>";
+            }
+
+        } catch(e) {
+            kwList.innerHTML = "<small style='color:red'>Error: " + e.message + "</small>";
+        }
+
+        btn.innerText = "🔍 Riset KW";
+        btn.disabled = false;
+    }
+
+    function closeKwBox() {
+        document.getElementById('keyword_result_box').classList.add('hidden');
     }
 
     // --- 1. FITUR FETCH INTERNAL LINK ---
@@ -558,6 +663,7 @@
         document.getElementById('judul').value = ""; document.getElementById('desc_gambar').value = "";
         document.getElementById('file_gambar').value = ""; document.getElementById('imgPreview').style.display = 'none';
         tinymce.get('kontenEditor').setContent(""); globalBase64Img = "";
+        document.getElementById('keyword_result_box').classList.add('hidden'); // Reset kw box
     }
 
     function toggleManualCat() { document.getElementById('cat_manual').classList.toggle('hidden', document.getElementById('cat_select').value !== 'NEW'); }
