@@ -119,8 +119,8 @@
             <div class="checkbox-wrapper">
                 <input type="checkbox" id="auto_bing_image" checked>
                 <div style="flex:1;">
-                    <b>🔍 Auto-Cari Gambar Header (Bing)</b><br>
-                    <small style="color:#666;">Script akan mencari gambar sesuai bahasa target.</small>
+                    <b>🔍 Auto-Cari Gambar Header (Bing + Pinterest Fallback)</b><br>
+                    <small style="color:#666;">Jika Bing gagal/jelek, otomatis cari di Pinterest.</small>
                 </div>
             </div>
 
@@ -230,6 +230,38 @@
         return text.split(/\s+/).slice(0, 12).join(" ");
     }
 
+    // --- NEW: SMART IMAGE FETCHER (BING -> PINTEREST FALLBACK) ---
+    async function fetchSmartImage(keyword) {
+        // 1. Coba Scrape Bing Biasa
+        try {
+            console.log("Mencari gambar di Bing untuk: " + keyword);
+            const res = await fetch(BING_SCRAPER_URL, {
+                method: 'POST', mode: 'cors', body: JSON.stringify({ query: keyword })
+            });
+            const data = await res.json();
+            if(data.status === 'success' && data.url) {
+                return data.url; // Sukses di percobaan pertama
+            }
+        } catch(e) { console.log("Bing utama gagal, coba fallback..."); }
+
+        // 2. Fallback: Coba Scrape Pinterest (via Bing Operator)
+        try {
+            console.log("Switching ke Pinterest Fallback...");
+            // Trik: Pakai "site:pinterest.com" agar Bing hanya ambil dari Pinterest
+            const pinterestQuery = "site:pinterest.com " + keyword;
+            
+            const res = await fetch(BING_SCRAPER_URL, {
+                method: 'POST', mode: 'cors', body: JSON.stringify({ query: pinterestQuery })
+            });
+            const data = await res.json();
+            if(data.status === 'success' && data.url) {
+                return data.url; // Sukses di percobaan kedua (Pinterest)
+            }
+        } catch(e) { console.log("Pinterest fallback gagal juga."); }
+
+        return null; // Nyerah, tidak ada gambar
+    }
+
     // --- 0. FITUR BARU: KEYWORD SCRAPER (AI BASED) ---
     async function scrapeKeywords() {
         const topic = document.getElementById('judul').value;
@@ -248,21 +280,17 @@
         kwBox.classList.remove('hidden');
         kwList.innerHTML = "<span class='loading-text'>Sedang mencari keywords terbaik...</span>";
 
-        // Prompt khusus SEO Expert
         const prompt = `
         ACT AS AN SEO EXPERT.
         TASK: Generate 20 high-value, high-search-volume, and low-competition long-tail keywords based on the topic: "${topic}".
         TARGET LANGUAGE: ${targetLang}.
-        
         CRITERIA:
         1. Keywords must be relevant to the topic.
         2. Mix between informational and transactional keywords.
         3. OUTPUT FORMAT: STRICTLY A COMMA-SEPARATED LIST ONLY. NO NUMBERING, NO INTRO.
-        Example output: keyword one, keyword two, best keyword three, how to do keyword four
         `;
 
         let resultText = "";
-
         try {
             if (currentProvider === 'GEMINI') {
                 const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/${model}:generateContent?key=${apiKey}`, {
@@ -279,8 +307,6 @@
                 const data = await res.json();
                 if(data.choices) resultText = data.choices[0].message.content;
             }
-
-            // Render Keywords
             if(resultText) {
                 const keywords = resultText.split(',').map(k => k.trim()).filter(k => k.length > 2).slice(0, 20);
                 kwList.innerHTML = "";
@@ -289,7 +315,6 @@
                     tag.className = "kw-tag";
                     tag.innerText = kw;
                     tag.onclick = function() {
-                        // Tambah ke deskripsi instruksi
                         const desc = document.getElementById('desc_gambar');
                         desc.value += (desc.value ? ", " : "") + kw;
                         this.classList.add('copied');
@@ -297,46 +322,29 @@
                     };
                     kwList.appendChild(tag);
                 });
-            } else {
-                kwList.innerHTML = "<small style='color:red'>Gagal generate keywords.</small>";
-            }
-
-        } catch(e) {
-            kwList.innerHTML = "<small style='color:red'>Error: " + e.message + "</small>";
-        }
-
-        btn.innerText = "🔍 Riset KW";
-        btn.disabled = false;
+            } else { kwList.innerHTML = "<small style='color:red'>Gagal generate keywords.</small>"; }
+        } catch(e) { kwList.innerHTML = "<small style='color:red'>Error: " + e.message + "</small>"; }
+        btn.innerText = "🔍 Riset KW"; btn.disabled = false;
     }
 
-    function closeKwBox() {
-        document.getElementById('keyword_result_box').classList.add('hidden');
-    }
+    function closeKwBox() { document.getElementById('keyword_result_box').classList.add('hidden'); }
 
     // --- 1. FITUR FETCH INTERNAL LINK ---
     async function fetchExistingPosts() {
         const blogId = document.getElementById('blog_select').value;
         const statusDiv = document.getElementById('link_status');
         if(!blogId || !accessToken) return;
-
         statusDiv.innerHTML = "⏳ Mengambil data artikel lama untuk internal link...";
-        
         try {
             const res = await fetch(`https://www.googleapis.com/blogger/v3/blogs/${blogId}/posts?status=LIVE&maxResults=50`, {
                 headers: { 'Authorization': `Bearer ${accessToken}` }
             });
             const data = await res.json();
-            
             if(data.items) {
                 existingPosts = data.items.map(p => ({ title: p.title, url: p.url }));
                 statusDiv.innerHTML = `✅ Siap! ${existingPosts.length} artikel lama dimuat untuk referensi link.`;
-            } else {
-                statusDiv.innerHTML = "⚠️ Tidak ada artikel lama ditemukan.";
-            }
-        } catch(e) {
-            console.error(e);
-            statusDiv.innerHTML = "❌ Gagal mengambil data artikel lama.";
-        }
+            } else { statusDiv.innerHTML = "⚠️ Tidak ada artikel lama ditemukan."; }
+        } catch(e) { statusDiv.innerHTML = "❌ Gagal mengambil data artikel lama."; }
     }
 
     // --- 2. FITUR UTAMA: GENERATE ---
@@ -346,18 +354,15 @@
         const apiKey = document.getElementById('api_key_input').value;
         const model = document.getElementById('model_select').value;
         const mode = document.getElementById('mode_penulisan').value; 
-        const targetLang = document.getElementById('target_lang').value; // Ambil Bahasa
+        const targetLang = document.getElementById('target_lang').value; 
         const autoBing = document.getElementById('auto_bing_image').checked;
-        
         const btnMain = directToBlogger ? document.getElementById('btnDirect') : document.getElementById('btnPreview');
         
         if(!apiKey || !model || !judul) return alert("Data belum lengkap!");
-
         btnMain.innerText = `⏳ AI Bekerja (${currentProvider})...`; 
         btnMain.disabled = true;
         if(directToBlogger) document.getElementById('btnPreview').disabled = true;
 
-        // A. SIAPKAN DATA INTERNAL LINK
         let internalLinkContext = "";
         if(existingPosts.length > 0) {
             const sample = existingPosts.sort(() => 0.5 - Math.random()).slice(0, 20);
@@ -365,7 +370,6 @@
             sample.forEach(p => { internalLinkContext += `- Title: ${p.title} | URL: ${p.url}\n`; });
         }
 
-        // B. SIAPKAN PROMPT (DITERJEMAHKAN KE KONTEKS GLOBAL)
         let customPrompt = "";
         let baseStructure = "Use <h2>, <h3>, <p>, <ul>/<ol>. DO NOT use markdown like (**). Use <b> for bold.";
 
@@ -378,7 +382,7 @@
             - Strong Introduction (2-3 paragraphs).
             - MANDATORY: Use at least 4 specific Heading 2 (<h2>) for sub-topics.
             - Fill each sub-topic with detailed information.
-            - Akhiri artikel dengan kesimpulan yang natural TANPA menggunakan heading 'Kesimpulan' atau semacamnya. Buat penutup yang mengalir.
+            - End the article with a natural conclusion WITHOUT using a 'Conclusion' heading or anything similar. Create a flowing conclusion.
             - Avoid repetitive sentence patterns.
             `;
         } else if (mode === 'CLICKBAIT') {
@@ -404,33 +408,25 @@
             `;
         }
 
-        // --- INI KUNCI UTAMA FITUR POLYGLOT ---
         let prompt = `
         ACT AS A PROFESSIONAL BLOG WRITER.
-        
         *** IMPORTANT INSTRUCTION ***
         WRITE THE ENTIRE ARTICLE IN THIS LANGUAGE: ${targetLang}.
         EVEN IF THE INPUT TOPIC IS IN INDONESIAN, YOU MUST TRANSLATE AND WRITE THE OUTPUT IN ${targetLang}.
         *****************************
-
         ${customPrompt}
-
         TOPIC/KEYWORD: "${judul}" (Source might be Indonesian, convert to ${targetLang}).
         CONTEXT FROM USER: "${desc}"
-        
         MANDATORY OUTPUT FORMAT:
         1. [TITLE]: (Title in ${targetLang})
         2. [META_DESC]: (SEO Description in ${targetLang}, max 150 chars)
         3. [TAGS]: (Relevant tags in ${targetLang}, comma separated)
         4. (Article Content HTML in ${targetLang}...)
            ${baseStructure}
-        
         ${internalLinkContext}
         `;
 
         let resultText = "";
-        
-        // C. EKSEKUSI AI
         try {
             if (currentProvider === 'GEMINI') {
                 let parts = [{ text: prompt }];
@@ -452,7 +448,6 @@
 
             if(resultText) {
                 resultText = resultText.replace(/```html/gi, '').replace(/```/g, '').replace(/\*\*(.*?)\*\*/g, '<b>$1</b>');
-
                 let finalTitle = judul;
                 let finalTags = [];
                 let finalContent = resultText;
@@ -472,16 +467,13 @@
                     finalContent = await injectImagesIntoContent(finalContent);
                 }
 
-                // --- E. HEADER IMAGE (AUTO BING) ---
+                // --- E. HEADER IMAGE (AUTO BING + FALLBACK PINTEREST) ---
                 if(autoBing) {
-                    try {
-                        const imgRes = await fetch(BING_SCRAPER_URL, { method: 'POST', mode: 'cors', body: JSON.stringify({ query: finalTitle }) });
-                        const imgData = await imgRes.json();
-                        if(imgData.status === "success" && imgData.url) {
-                            const captionOtomatis = makeCaption(finalTitle);
-                            finalContent = `<div style="text-align:center; margin-bottom:20px;"><img src="${imgData.url}" alt="${finalTitle}" style="max-width:100%; border-radius:8px;" /><br><small><i>${captionOtomatis}</i></small></div><hr/>` + finalContent;
-                        }
-                    } catch(e) { console.log("Header img fail"); }
+                    const imgUrl = await fetchSmartImage(finalTitle); // Pakai Fungsi Baru
+                    if(imgUrl) {
+                        const captionOtomatis = makeCaption(finalTitle);
+                        finalContent = `<div style="text-align:center; margin-bottom:20px;"><img src="${imgUrl}" alt="${finalTitle}" style="max-width:100%; border-radius:8px;" /><br><small><i>${captionOtomatis}</i></small></div><hr/>` + finalContent;
+                    }
                 }
 
                 // F. FINISHING
@@ -499,13 +491,12 @@
                 }
             }
         } catch(e) { alert("Error: " + e.message); }
-        
         btnMain.disabled = false;
         if(directToBlogger) document.getElementById('btnPreview').disabled = false;
         btnMain.innerText = directToBlogger ? "🚀 Generate & Langsung Draft" : "✨ Preview";
     }
 
-    // --- 3. FUNGSI SUNTIK GAMBAR H2 ---
+    // --- 3. FUNGSI SUNTIK GAMBAR H2 (UPDATED WITH FALLBACK) ---
     async function injectImagesIntoContent(htmlContent) {
         const parser = new DOMParser();
         const doc = parser.parseFromString(htmlContent, 'text/html');
@@ -516,21 +507,17 @@
             const h2Text = h2s[i].innerText;
             if(h2Text.length < 5) continue; 
 
-            try {
-                const res = await fetch(BING_SCRAPER_URL, {
-                    method: 'POST', mode: 'cors', body: JSON.stringify({ query: h2Text })
-                });
-                const data = await res.json();
-                
-                if(data.status === 'success' && data.url) {
-                    const captionH2 = makeCaption(h2Text);
-                    const div = doc.createElement('div');
-                    div.style.textAlign = "center";
-                    div.style.margin = "15px 0";
-                    div.innerHTML = `<img src="${data.url}" alt="${h2Text}" style="max-width:100%; height:auto; border-radius:6px;" loading="lazy"><br><small><i>${captionH2}</i></small>`;
-                    h2s[i].parentNode.insertBefore(div, h2s[i].nextSibling);
-                }
-            } catch(e) { console.log("Skip img injection for: " + h2Text); }
+            // Pakai Fungsi Baru (Smart Fetch)
+            const imgUrl = await fetchSmartImage(h2Text);
+            
+            if(imgUrl) {
+                const captionH2 = makeCaption(h2Text);
+                const div = doc.createElement('div');
+                div.style.textAlign = "center";
+                div.style.margin = "15px 0";
+                div.innerHTML = `<img src="${imgUrl}" alt="${h2Text}" style="max-width:100%; height:auto; border-radius:6px;" loading="lazy"><br><small><i>${captionH2}</i></small>`;
+                h2s[i].parentNode.insertBefore(div, h2s[i].nextSibling);
+            }
         }
         return doc.body.innerHTML;
     }
@@ -663,7 +650,7 @@
         document.getElementById('judul').value = ""; document.getElementById('desc_gambar').value = "";
         document.getElementById('file_gambar').value = ""; document.getElementById('imgPreview').style.display = 'none';
         tinymce.get('kontenEditor').setContent(""); globalBase64Img = "";
-        document.getElementById('keyword_result_box').classList.add('hidden'); // Reset kw box
+        document.getElementById('keyword_result_box').classList.add('hidden'); 
     }
 
     function toggleManualCat() { document.getElementById('cat_manual').classList.toggle('hidden', document.getElementById('cat_select').value !== 'NEW'); }
