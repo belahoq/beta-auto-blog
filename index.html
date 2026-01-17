@@ -240,38 +240,44 @@
         });
     }
 
-    // --- NEW: SMART IMAGE DOWNLOADER (BASE64 MODE) ---
-    // Fungsi ini sekarang menerima DATA GAMBAR ASLI (Base64), bukan Link.
+    // --- NEW: SMART IMAGE FETCHER (Cleaner Query + Validator + Pinterest) ---
     async function fetchSmartImage(keyword) {
-        // Query Bersih
+        // Query Bersih: Hindari watermark/stock photo
         const cleanQuery = keyword + " -site:shutterstock.com -site:istockphoto.com -stock -watermark";
-        
-        // Helper untuk request ke GAS
-        const requestToGAS = async (q) => {
-            try {
-                const res = await fetch(BING_SCRAPER_URL, {
-                    method: 'POST', mode: 'cors', body: JSON.stringify({ query: q })
-                });
-                const data = await res.json();
-                if(data.status === 'success' && data.url) {
-                    // data.url sekarang berisi kode Base64 yang sangat panjang
-                    return data.url; 
-                }
-            } catch(e) { console.log("Gagal fetch: " + q); }
-            return null;
-        };
 
-        // 1. Coba Bing Normal
-        console.log("Downloading image from Bing...");
-        let imgData = await requestToGAS(cleanQuery);
-        if(imgData) return imgData;
+        // 1. Coba Scrape Bing (Normal)
+        try {
+            console.log("Mencari gambar Bing: " + cleanQuery);
+            const res = await fetch(BING_SCRAPER_URL, {
+                method: 'POST', mode: 'cors', body: JSON.stringify({ query: cleanQuery })
+            });
+            const data = await res.json();
+            
+            // CEK VALIDASI
+            if(data.status === 'success' && data.url) {
+                const isValid = await validateImage(data.url);
+                if(isValid) return data.url;
+                else console.log("Gambar Bing rusak/tidak bisa dimuat, coba Pinterest...");
+            }
+        } catch(e) { console.log("Bing utama gagal."); }
 
-        // 2. Fallback Pinterest
-        console.log("Bing failed, trying Pinterest...");
-        const pinterestQuery = "site:pinterest.com " + keyword;
-        imgData = await requestToGAS(pinterestQuery);
-        
-        return imgData; // Return Base64 atau Null
+        // 2. Fallback: Coba Scrape Pinterest
+        try {
+            console.log("Switching ke Pinterest Fallback...");
+            const pinterestQuery = "site:pinterest.com " + keyword; // Query khusus Pinterest
+            
+            const res = await fetch(BING_SCRAPER_URL, {
+                method: 'POST', mode: 'cors', body: JSON.stringify({ query: pinterestQuery })
+            });
+            const data = await res.json();
+            
+            if(data.status === 'success' && data.url) {
+                const isValid = await validateImage(data.url); // Validasi lagi
+                if(isValid) return data.url;
+            }
+        } catch(e) { console.log("Pinterest fallback gagal."); }
+
+        return null; // Nyerah, jangan inject apapun
     }
 
     // --- 0. FITUR BARU: KEYWORD SCRAPER (AI BASED) ---
